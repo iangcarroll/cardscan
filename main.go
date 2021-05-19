@@ -6,9 +6,11 @@ import (
 	"time"
 )
 
-var (
-	debugLogging = true
+const (
+	debugLogging = false
+)
 
+var (
 	clipperApplication    = []byte{0x90, 0x11, 0xf2}
 	clipperiOSApplication = []byte{0x91, 0x11, 0xf2}
 )
@@ -25,6 +27,8 @@ type DiscoveredCommand struct {
 	SW2 byte
 }
 
+// Wraps `sendDesfireCommand` to send all possible commands to a card, and
+// returns commands that do not return SW1=91,SW2=1c.
 func tryAllCommands() (commands []DiscoveredCommand, err error) {
 	for i := uint8(0); i < 255; i++ {
 		res, err := sendDesfireCommand(i, []byte{})
@@ -40,8 +44,6 @@ func tryAllCommands() (commands []DiscoveredCommand, err error) {
 				SW2: res.SW2(),
 			})
 		}
-
-		selectApplication()
 	}
 
 	return commands, nil
@@ -134,8 +136,30 @@ func listFiles() {
 		check(err)
 
 		data := fileInfo.Data()
-		log.Printf("File 0x%02x, type %s, security level 0x%02x", file, getFileType(data[0]), data[1])
+		log.Printf("File 0x%02x, type %s, security level 0x%02x\n", file, getFileType(data[0]), data[1])
 	}
+}
+
+func getVersion() {
+	version, err := sendDesfireCommand(0x60, []byte{})
+	check(err)
+
+	log.Printf("Vendor ID: 0x%02x\n", version[0])
+	log.Printf("Type, Subtype: 0x%02x, 0x%02x\n", version[1], version[2])
+	log.Printf("Hardware Version: %d.%d\n", uint8(version[3]), uint8(version[4]))
+
+	// Second frame contains the software version; otherwise identical frame.
+	version, err = sendDesfireCommand(0xAF, []byte{})
+	check(err)
+
+	log.Printf("Software Version: %d.%d\n", uint8(version[3]), uint8(version[4]))
+
+	// Third frame contains UID/etc.
+	version, err = sendDesfireCommand(0xAF, []byte{})
+	check(err)
+
+	log.Printf("UID: %02x%02x%02x%02x%02x%02x%02x\n", version[0], version[1], version[2], version[3], version[4], version[5], version[6])
+	log.Printf("Production Week/Year: %02x/%02x\n", version[12], version[13])
 }
 
 func main() {
@@ -147,6 +171,10 @@ func main() {
 		panic(err)
 	}
 
-	// List files.
-	listFiles()
+	// Get DESFire card metadata.
+	getVersion()
+
+	getClipperSerial()
+	getKeySettings()
+	getKeyVersions()
 }
